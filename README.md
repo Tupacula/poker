@@ -1,33 +1,7 @@
-# PokerBot (Student Project Scaffold)
+# Poke rBot
 
-Minimal scaffold for a poker bot that reads a fake-money web table, looks up
-GTO solutions (from precomputed tables or an external solver) and executes
-actions in the browser. This repository only contains skeleton code and a
-simple simulator to test automation and vision components locally.
+Minimal scaffold for a poker bot 
 
-## Quick Start
-
-### 1. Install Python dependencies (prefer a virtualenv):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Install Tesseract (macOS Homebrew):
-
-```bash
-brew install tesseract
-```
-
-### 3. Open the simulator for manual testing (serve from the `simulator/` dir):
-
-```bash
-cd simulator
-python3 -m http.server 8000
-# then open http://localhost:8000 in your browser
-```
 
 ## Project Structure
 
@@ -52,42 +26,4 @@ python3 -m http.server 8000
   - `style.css`: green felt styling
   - `script.js`: button click handling
 
-## Next Steps
 
-1. **Card Detection**: Implement real template matching in `vision/card_reader.py` using OpenCV
-2. **Precomputed Solutions**: Populate `data/lookups/` with solver exports (PioSOLVER, GTO Wizard, DeepSolver)
-3. **Browser Automation**: Replace `automation/browser_control.py` with robust Playwright/Selenium
-4. **State Extraction**: Enhance `vision/capture.py` to parse real table state from screenshots
-5. **Solver Integration**: Connect to a live solver (local PioSOLVER instance or cloud API)
-
-## Architecture Overview
-
-```
-Screenshot → Parse State → Query Solver → Pick Action → Execute Click
-   (vision)     (vision)      (solver)      (solver)      (automation)
-```
-
-### Key Techniques
-
-- **Card Recognition**: OpenCV template matching (fast, reliable on fixed assets)
-- **Number OCR**: Tesseract for stack sizes and pot
-- **Solver Queries**: Local precomputed lookup or live solver API
-- **Action Selection**: Sample by GTO frequencies or pick max-probability action
-- **Button Clicking**: Playwright/Selenium for DOM elements; PyAutoGUI for coordinates
-
-
-
-
-Always respect site policies and player fairness.
-
-## Resources
-
-- **Playwright**: https://playwright.dev/python/
-- **Selenium**: https://www.selenium.dev/
-- **OpenCV**: https://opencv.org/
-- **Tesseract**: https://github.com/UB-Mannheim/tesseract/wiki
-- **PioSOLVER**: https://www.piosolver.com/ (commercial; check licensing)
-- **GTO Wizard**: https://www.gtowizard.com/ (cloud solver + presolved library)
-- **DeepSolver**: https://www.deepsolver.ai/ (cloud solver + API)
-# poker
-# poker
