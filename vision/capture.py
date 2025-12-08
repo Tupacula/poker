@@ -6,12 +6,11 @@ Responsible for:
   - Running card detection on that screenshot
   - Packaging the result into a raw dictionary that main.py can normalize
 
-This module currently only parses hero and board cards using template matching.
 Numeric fields such as pot, stack, and bet_to_call are left as None for now.
 You can later extend this file to call OCR helpers to populate those values.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import io
 
 from PIL import Image
@@ -20,6 +19,60 @@ from . import card_reader
 
 # Detection = (card_code, (x, y, w, h))
 Detection = Tuple[str, Tuple[int, int, int, int]]
+
+
+class CaptureError(RuntimeError):
+    """Raised when a screenshot cannot be taken or parsed."""
+
+
+def screenshot_page(page, region: Optional[Tuple[int, int, int, int]] = None) -> Image.Image:
+    """
+    Take a screenshot of the Playwright page and return a PIL Image.
+
+    Parameters:
+      page   - Playwright page
+      region - optional (x, y, w, h) to crop after capture
+
+    Raises CaptureError if the page is closed or screenshot fails.
+    """
+    if page is None or getattr(page, "is_closed", lambda: True)():
+        raise CaptureError("Cannot capture screenshot: page is not ready or already closed")
+
+    try:
+        png_bytes = page.screenshot(full_page=True)
+    except Exception as exc:
+        raise CaptureError(f"Failed to take screenshot: {exc}") from exc
+
+    try:
+        image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    except Exception as exc:
+        raise CaptureError(f"Failed to decode screenshot into image: {exc}") from exc
+
+    if region:
+        image = crop_region(image, region)
+
+    return image
+
+
+def crop_region(image: Image.Image, region: Tuple[int, int, int, int]) -> Image.Image:
+    """
+    Crop a PIL Image to the given region (x, y, w, h).
+    """
+    x, y, w, h = region
+    return image.crop((x, y, x + w, y + h))
+
+
+def get_full_page_image(page) -> Image.Image:
+    """Helper alias to capture the entire page as a PIL Image."""
+    return screenshot_page(page)
+
+
+def get_table_region(page, region: Tuple[int, int, int, int]) -> Image.Image:
+    """
+    Capture and return only the table region as a PIL Image.
+    Useful once you know the bounding box of the poker table.
+    """
+    return screenshot_page(page, region=region)
 
 
 def _split_board_and_hero(detections: List[Detection]) -> Tuple[List[str], List[str]]:
@@ -39,7 +92,6 @@ def _split_board_and_hero(detections: List[Detection]) -> Tuple[List[str], List[
     if not detections:
         return [], []
 
-    # Sort by y (vertical) position
     detections_sorted = sorted(detections, key=lambda d: d[1][1])
 
     ys = [bbox[1] for _, bbox in detections_sorted]
@@ -54,7 +106,6 @@ def _split_board_and_hero(detections: List[Detection]) -> Tuple[List[str], List[
         else:
             hero.append((code, (x, y, w, h)))
 
-    # Sort each group horizontally by x
     board_sorted = [code for code, bbox in sorted(board, key=lambda d: d[1][0])]
     hero_sorted = [code for code, bbox in sorted(hero, key=lambda d: d[1][0])]
 
@@ -101,8 +152,7 @@ def capture_state_from_playwright(page) -> Dict:
 
     This function is the entry point used by main.run_single_decision_step.
     """
-    png_bytes = page.screenshot(full_page=True)
-    image = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    image = screenshot_page(page)
     return _capture_state_from_image(image)
 
 

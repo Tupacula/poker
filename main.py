@@ -3,40 +3,38 @@ main.py
 
 Orchestration loop for the poker bot.
 
-High level pipeline:
-
+Pipeline:
     Screenshot -> Parse State -> Query Solver -> Execute Action
-
-This file is intended to be as close as possible to the "final" structure.
-Where functionality is not yet implemented (for example, real solver lookup),
-it is clearly marked as a placeholder with TODO comments.
-
-Dependencies:
-  - Playwright for browser control
-  - vision.capture for reading table state from screenshots
-  - automation.browser_control for clicking Fold / Call / Raise in the DOM
 """
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional
 
 from playwright.sync_api import sync_playwright
 
 from vision import capture
+from solver import lookup, decision
 from automation import browser_control
-
 
 # Type alias for the three basic actions we support
 Action = Literal["fold", "call", "raise"]
+
+# Simple configuration block
+TABLE_URL = "http://localhost:8000"  # TODO: replace with your real app URL
+LOOP_DELAY_SECONDS = 1.0             # throttle between actions
+HEADLESS = False                     # set True when you do not need to observe
+DECISION_STEPS = 10                  # adjust or replace with hand-based logic
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("pokerbot")
 
 
 @dataclass
 class TableState:
     """
     Normalized representation of the table state.
-
-    This wraps whatever raw dictionary comes back from vision.capture
-    into a typed object that is easier to work with and extend.
     """
 
     hero_cards: List[str]
@@ -49,13 +47,7 @@ class TableState:
 
 
 def normalize_state(raw_state: Dict) -> TableState:
-    """
-    Convert raw state dictionary from vision.capture into a TableState object.
-
-    This function should remain very thin. If you add more fields to the
-    capture output (for example, opponent stacks, bets, etc.) you can
-    expose them here without changing the rest of the code.
-    """
+    """Convert raw state dictionary from vision.capture into a TableState object."""
     return TableState(
         hero_cards=list(raw_state.get("hero_cards", [])),
         board=list(raw_state.get("board", [])),
@@ -67,52 +59,18 @@ def normalize_state(raw_state: Dict) -> TableState:
     )
 
 
-def choose_action_placeholder(state: TableState) -> Action:
-    """
-    Placeholder decision logic.
-
-    TODO: Replace this with a real solver lookup when:
-      - Card templates are in place
-      - GTO lookup tables or a live solver integration exists
-
-    For now, this function implements a trivial rule-based policy so
-    that the rest of the pipeline can be exercised end to end:
-
-      - If hero has any Ace, "raise"
-      - Else if there is a flop (at least 3 board cards), "call"
-      - Else "fold"
-
-    This is intentionally simple and obviously non-GTO so it is easy
-    to remember that it is a placeholder.
-    """
-    hero = [card.lower() for card in state.hero_cards]
-
-    if any(card.startswith("a") for card in hero):
-        return "raise"
-
-    if len(state.board) >= 3:
-        return "call"
-
-    return "fold"
-
-
 def decide_action(state: TableState) -> Action:
     """
     Entry point for the decision logic.
 
-    Eventually, this should:
-      1. Map the parsed state into the solver's abstraction
-      2. Query a precomputed solution or live solver
-      3. Sample or pick an action according to GTO frequencies
-
-    For now, this function delegates to choose_action_placeholder,
-    which is clearly marked as a stub. When you add real solver
-    integration, you should replace the call below.
+    For now, uses solver.lookup.lookup_strategy (stub) and solver.decision.choose_action.
     """
-    return choose_action_placeholder(state)
+    probs = lookup.lookup_strategy(state.__dict__)
+    action = decision.choose_action(probs)
+    return action
 
 
-def run_single_decision_step(page) -> None:
+def run_single_decision_step(page, dry_run: bool = False) -> None:
     """
     Perform one full perception -> decision -> action loop.
 
@@ -120,19 +78,19 @@ def run_single_decision_step(page) -> None:
       1. Capture screenshot from the Playwright page
       2. Let vision.capture parse cards and other state
       3. Normalize the raw state into a TableState
-      4. Decide an action (currently using placeholder logic)
-      5. Click the corresponding UI button via DOM
+      4. Decide an action
+      5. Click the corresponding UI button via DOM (skipped if dry_run)
     """
-    # 1. Capture table state from a Playwright screenshot
     raw_state = capture.capture_state_from_playwright(page)
-
-    # 2. Normalize for downstream logic
     state = normalize_state(raw_state)
-
-    # 3. Decide what to do
     action = decide_action(state)
 
-    # 4. Execute the action in the browser via DOM clicks
+    logger.info("State hero=%s board=%s pot=%s stack=%s bet_to_call=%s -> action=%s",
+                state.hero_cards, state.board, state.pot, state.stack, state.bet_to_call, action)
+
+    if dry_run:
+        return
+
     browser_control.click_action_playwright(page, action)
 
 
@@ -140,41 +98,23 @@ def main() -> None:
     """
     Top-level entry point for running the bot.
 
-    This function is responsible for:
-      - Spinning up a Playwright browser instance
-      - Navigating to the poker table URL
-      - Running the decision loop a fixed number of times (for now)
-
-    Notes:
-      - The loop count and delays are placeholders. Once you integrate
-        with a real app, you will likely:
-          * Trigger decisions only when it is your turn to act
-          * Use event-based logic instead of a simple for-loop
+    Robustness notes:
+      - Exceptions within the loop are logged and skipped so a single failure
+        does not crash the process.
     """
-    TABLE_URL = "http://localhost:8000"  # TODO: replace with your real app URL
-    DECISION_STEPS = 10                  # TODO: adjust or replace with hand-based logic
-    STEP_DELAY_SECONDS = 1.0             # simple throttle between actions
-
     with sync_playwright() as p:
-        # Launch a visible browser so you can see what is happening.
-        # Set headless=True when you no longer need to observe it.
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=HEADLESS)
         page = browser.new_page()
 
-        # Navigate to the poker table
         page.goto(TABLE_URL)
-
-        # Optional: wait for the UI to finish loading.
-        # For a real app, you might want to wait for specific selectors.
         page.wait_for_timeout(2000)
 
-        # Simple fixed-length loop for now.
-        # You can later change this to "while True" or per-hand triggers.
-        import time
-
         for _ in range(DECISION_STEPS):
-            run_single_decision_step(page)
-            time.sleep(STEP_DELAY_SECONDS)
+            try:
+                run_single_decision_step(page)
+            except Exception as exc:
+                logger.exception("Decision step failed: %s", exc)
+            time.sleep(LOOP_DELAY_SECONDS)
 
         browser.close()
 

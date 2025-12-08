@@ -4,6 +4,7 @@ vision/card_reader.py
 Responsible for:
   - Detecting individual cards in a screenshot
   - Using OpenCV template matching against card templates
+  - Exposing simple APIs for hole/board detection
 
 Expected template setup:
   - Directory: data/templates/
@@ -18,9 +19,15 @@ Runtime behavior:
 from pathlib import Path
 from typing import List, Tuple
 
-import cv2
 import numpy as np
 from PIL import Image
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None  # type: ignore
+    CV2_AVAILABLE = False
 
 # Detection = (card_code, (x, y, w, h))
 Detection = Tuple[str, Tuple[int, int, int, int]]
@@ -55,7 +62,7 @@ class TemplateStore:
         """
         cls.templates = []
 
-        if not TEMPLATE_DIR.exists():
+        if not CV2_AVAILABLE or not TEMPLATE_DIR.exists():
             cls.templates_loaded = True
             return
 
@@ -113,6 +120,9 @@ def _match_templates(
     You can tune this later once you have real templates and screenshots.
     """
     detections: List[Tuple[str, float, Tuple[int, int, int, int]]] = []
+
+    if not CV2_AVAILABLE:
+        return []
 
     templates = TemplateStore.get_templates()
     if not templates:
@@ -201,6 +211,32 @@ def _nms(
     return kept
 
 
+def _split_board_and_hero(detections: List[Detection]) -> Tuple[List[str], List[str]]:
+    """
+    Heuristic split of detections into board and hero rows based on y-position.
+
+    Board is assumed to appear above hero cards. Within each row, detections
+    are sorted by x so the output order is left-to-right.
+    """
+    if not detections:
+        return [], []
+
+    sorted_by_y = sorted(detections, key=lambda d: d[1][1])
+    ys = [bbox[1] for _, bbox in sorted_by_y]
+    median_y = sorted(ys)[len(ys) // 2]
+
+    board, hero = [], []
+    for code, (x, y, w, h) in sorted_by_y:
+        if y <= median_y:
+            board.append((code, (x, y, w, h)))
+        else:
+            hero.append((code, (x, y, w, h)))
+
+    board_sorted = [code for code, bbox in sorted(board, key=lambda d: d[1][0])]
+    hero_sorted = [code for code, bbox in sorted(hero, key=lambda d: d[1][0])]
+    return board_sorted, hero_sorted
+
+
 def find_cards(image: Image.Image) -> List[Detection]:
     """
     Detect cards in the given image using template matching.
@@ -221,3 +257,31 @@ def find_cards(image: Image.Image) -> List[Detection]:
         final.append((code, bbox))
 
     return final
+
+
+def detect_hole_cards(image: Image.Image) -> List[str]:
+    """
+    Public API to detect hero hole cards.
+
+    Returns list of codes like ["As", "Kd"] in left-to-right order.
+    Uses heuristic row split; refine once table layout is known.
+    """
+    detections = find_cards(image)
+    _, hero = _split_board_and_hero(detections)
+    return hero
+
+
+def detect_board_cards(image: Image.Image) -> List[str]:
+    """
+    Public API to detect board cards.
+
+    Returns list of 0..5 codes in left-to-right order.
+    Uses heuristic row split; refine once table layout is known.
+    """
+    detections = find_cards(image)
+    board, _ = _split_board_and_hero(detections)
+    return board
+
+
+# TODO: replace the simple heuristic split and template matching thresholds
+# with layout-aware regions once real templates and UI coordinates are available. 
