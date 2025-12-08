@@ -25,7 +25,10 @@ from typing import Literal
 Action = Literal["fold", "call", "raise"]
 
 
-def click_action_playwright(page, action: Action) -> None:
+def click_action_playwright(
+    page,
+    action: Action,
+) -> None:
     """
     Click the appropriate action button in the browser using Playwright.
 
@@ -47,16 +50,13 @@ def click_action_playwright(page, action: Action) -> None:
     if action_lower not in {"fold", "call", "raise"}:
         raise ValueError(f"Unknown action: {action}")
 
-    # Helper to try a CSS selector, then a text locator.
+    # Helper to try CSS, then text.
     def try_click_by_id_or_text(button_id: str, button_text: str) -> bool:
-        # First try id selector
         try:
             page.click(f"#{button_id}", timeout=2000)
             return True
         except Exception:
             pass
-
-        # Then try text locator
         try:
             page.get_by_text(button_text, exact=True).click(timeout=2000)
             return True
