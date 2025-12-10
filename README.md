@@ -1,4 +1,4 @@
-# Poke rBot
+
 
 Minimal scaffold for a poker bot 
 
