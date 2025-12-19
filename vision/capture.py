@@ -12,6 +12,9 @@ You can later extend this file to call OCR helpers to populate those values.
 
 from typing import Dict, List, Optional, Tuple
 import io
+import logging
+import time
+from pathlib import Path
 
 from PIL import Image
 
@@ -19,6 +22,12 @@ from . import card_reader
 
 # Detection = (card_code, (x, y, w, h))
 Detection = Tuple[str, Tuple[int, int, int, int]]
+
+# Optional static fallbacks; prefer DOM-derived regions when available.
+HERO_REGION_FALLBACK: Optional[Tuple[int, int, int, int]] = None
+BOARD_REGION_FALLBACK: Optional[Tuple[int, int, int, int]] = None
+
+logger = logging.getLogger(__name__)
 
 
 class CaptureError(RuntimeError):
@@ -141,7 +150,50 @@ def _capture_state_from_image(image: Image.Image) -> Dict:
     return state
 
 
-def capture_state_from_playwright(page) -> Dict:
+def _get_bounding_box(page, selector: str) -> Optional[Tuple[int, int, int, int]]:
+    """
+    Return a bounding box (x, y, w, h) for a DOM element, if available.
+    """
+    if not hasattr(page, "query_selector"):
+        return None
+    try:
+        elem = page.query_selector(selector)
+        if elem is None:
+            return None
+        box = elem.bounding_box()
+        if not box:
+            return None
+        return (
+            int(box.get("x", 0)),
+            int(box.get("y", 0)),
+            int(box.get("width", 0)),
+            int(box.get("height", 0)),
+        )
+    except Exception as exc:  # pragma: no cover - depends on Playwright runtime
+        logger.debug("Failed to get bounding box for %s: %s", selector, exc)
+        return None
+
+
+def _resolve_regions(page) -> Dict[str, Optional[Tuple[int, int, int, int]]]:
+    """
+    Find hero/board regions, preferring DOM bounding boxes over fallbacks.
+    """
+    hero_region = _get_bounding_box(page, "#hero") or HERO_REGION_FALLBACK
+    board_region = _get_bounding_box(page, "#board") or BOARD_REGION_FALLBACK
+    regions: Dict[str, Optional[Tuple[int, int, int, int]]] = {
+        "hero_region": hero_region,
+        "board_region": board_region,
+    }
+    return regions
+
+
+def _save_image(image: Image.Image, path: Path) -> None:
+    """Save a PIL Image to disk, ensuring parent directories exist."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path)
+
+
+def capture_state_from_playwright(page, dump_dir: Optional[str] = None) -> Dict:
     """
     Capture and parse table state from a Playwright page.
 
@@ -153,7 +205,33 @@ def capture_state_from_playwright(page) -> Dict:
     This function is the entry point used by main.run_single_decision_step.
     """
     image = screenshot_page(page)
-    return _capture_state_from_image(image)
+    regions = _resolve_regions(page)
+    state = _capture_state_from_image(image)
+    state.update(regions)
+
+    if dump_dir:
+        timestamp = int(time.time() * 1000)
+        dump_path = Path(dump_dir)
+
+        screenshot_path = dump_path / f"frame_{timestamp}.png"
+        _save_image(image, screenshot_path)
+        state["screenshot_path"] = str(screenshot_path)
+
+        hero_region = regions.get("hero_region")
+        if hero_region:
+            hero_crop = crop_region(image, hero_region)
+            hero_path = dump_path / f"frame_{timestamp}_hero.png"
+            _save_image(hero_crop, hero_path)
+            state["hero_crop_path"] = str(hero_path)
+
+        board_region = regions.get("board_region")
+        if board_region:
+            board_crop = crop_region(image, board_region)
+            board_path = dump_path / f"frame_{timestamp}_board.png"
+            _save_image(board_crop, board_path)
+            state["board_crop_path"] = str(board_path)
+
+    return state
 
 
 def capture_state_from_image(image: Image.Image) -> Dict:

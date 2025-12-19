@@ -18,9 +18,12 @@ Runtime behavior:
 
 from pathlib import Path
 from typing import List, Tuple
+import logging
 
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 try:
     import cv2
@@ -62,7 +65,13 @@ class TemplateStore:
         """
         cls.templates = []
 
-        if not CV2_AVAILABLE or not TEMPLATE_DIR.exists():
+        if not CV2_AVAILABLE:
+            logger.info("OpenCV not available, card detection disabled")
+            cls.templates_loaded = True
+            return
+
+        if not TEMPLATE_DIR.exists():
+            logger.info("Template directory %s missing, card detection disabled", TEMPLATE_DIR)
             cls.templates_loaded = True
             return
 
@@ -80,6 +89,7 @@ class TemplateStore:
             cls.templates.append((code, img))
 
         cls.templates_loaded = True
+        logger.info("%s templates loaded%s", len(cls.templates), "" if cls.templates else " (card detection disabled)")
 
     @classmethod
     def get_templates(cls) -> List[Tuple[str, np.ndarray]]:

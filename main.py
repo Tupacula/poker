@@ -10,9 +10,13 @@ Pipeline:
 import logging
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError:  # pragma: no cover - optional dependency for tests
+    sync_playwright = None  # type: ignore
 
 from vision import capture
 from solver import lookup, decision
@@ -26,6 +30,9 @@ TABLE_URL = "http://localhost:8000"  # TODO: replace with your real app URL
 LOOP_DELAY_SECONDS = 1.0             # throttle between actions
 HEADLESS = False                     # set True when you do not need to observe
 DECISION_STEPS = 10                  # adjust or replace with hand-based logic
+VIEWPORT = {"width": 1200, "height": 800}  # keep screenshots consistent
+DEBUG_DUMP_IMAGES = True
+DEBUG_DUMP_DIR = Path("data/debug_frames")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("pokerbot")
@@ -43,18 +50,33 @@ class TableState:
     to_act: str
     stack: Optional[float]
     bet_to_call: Optional[float]
+    street: str
     raw: Dict  # raw vision output for debugging or future extensions
+
+
+def _street_from_board(board: List[str]) -> str:
+    """Derive street name from board length."""
+    length = len(board)
+    if length >= 5:
+        return "river"
+    if length == 4:
+        return "turn"
+    if length >= 3:
+        return "flop"
+    return "preflop"
 
 
 def normalize_state(raw_state: Dict) -> TableState:
     """Convert raw state dictionary from vision.capture into a TableState object."""
+    board_cards = list(raw_state.get("board", []))
     return TableState(
         hero_cards=list(raw_state.get("hero_cards", [])),
-        board=list(raw_state.get("board", [])),
+        board=board_cards,
         pot=raw_state.get("pot"),
         to_act=raw_state.get("to_act", "hero"),
         stack=raw_state.get("stack"),
         bet_to_call=raw_state.get("bet_to_call"),
+        street=_street_from_board(board_cards),
         raw=raw_state,
     )
 
@@ -81,12 +103,22 @@ def run_single_decision_step(page, dry_run: bool = False) -> None:
       4. Decide an action
       5. Click the corresponding UI button via DOM (skipped if dry_run)
     """
-    raw_state = capture.capture_state_from_playwright(page)
+    dump_dir = str(DEBUG_DUMP_DIR) if DEBUG_DUMP_IMAGES else None
+    raw_state = capture.capture_state_from_playwright(page, dump_dir=dump_dir)
     state = normalize_state(raw_state)
     action = decide_action(state)
 
-    logger.info("State hero=%s board=%s pot=%s stack=%s bet_to_call=%s -> action=%s",
-                state.hero_cards, state.board, state.pot, state.stack, state.bet_to_call, action)
+    logger.info(
+        "State hero=%s board=%s street=%s pot=%s stack=%s bet_to_call=%s -> action=%s (shot=%s)",
+        state.hero_cards,
+        state.board,
+        state.street,
+        state.pot,
+        state.stack,
+        state.bet_to_call,
+        action,
+        raw_state.get("screenshot_path"),
+    )
 
     if dry_run:
         return
@@ -102,9 +134,16 @@ def main() -> None:
       - Exceptions within the loop are logged and skipped so a single failure
         does not crash the process.
     """
+    if sync_playwright is None:
+        raise RuntimeError("playwright is not installed; install it to run the bot")
+
+    if DEBUG_DUMP_IMAGES:
+        DEBUG_DUMP_DIR.mkdir(parents=True, exist_ok=True)
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS)
         page = browser.new_page()
+        page.set_viewport_size(VIEWPORT)
 
         page.goto(TABLE_URL)
         page.wait_for_timeout(2000)

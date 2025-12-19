@@ -1,0 +1,12 @@
+# Card template contract
+
+- Location: this directory (`data/templates/`).
+- Filenames: one per card using rank+suit, e.g., `As.png`, `Kd.png`, `2c.png`.
+- Template type: **corner-only** rank+suit crops (recommended for robustness).
+- Pixel size: fixed 40x40 px per template (adjust here if your UI differs).
+- Color: grayscale (single channel); RGB/BGR images will be converted but keep sizes consistent.
+- Expectation: all 52 templates present; missing files mean card detection stays disabled.
+
+Notes:
+- If templates are absent, the pipeline will log “0 templates loaded, card detection disabled”.
+- Keep capture viewport and crop regions fixed so templates match future screenshots.
