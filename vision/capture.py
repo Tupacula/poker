@@ -19,6 +19,7 @@ from pathlib import Path
 from PIL import Image
 
 from . import card_reader
+from .config import get_region, load_config
 
 # Detection = (card_code, (x, y, w, h))
 Detection = Tuple[str, Tuple[int, int, int, int]]
@@ -176,13 +177,18 @@ def _get_bounding_box(page, selector: str) -> Optional[Tuple[int, int, int, int]
 
 def _resolve_regions(page) -> Dict[str, Optional[Tuple[int, int, int, int]]]:
     """
-    Find hero/board regions, preferring DOM bounding boxes over fallbacks.
+    Find hero/board regions, preferring config -> DOM -> fallbacks.
     """
-    hero_region = _get_bounding_box(page, "#hero") or HERO_REGION_FALLBACK
-    board_region = _get_bounding_box(page, "#board") or BOARD_REGION_FALLBACK
+    config = load_config()
+    hero_region = get_region(config, "hero_region") or _get_bounding_box(page, "#hero") or HERO_REGION_FALLBACK
+    board_region = get_region(config, "board_region") or _get_bounding_box(page, "#board") or BOARD_REGION_FALLBACK
     regions: Dict[str, Optional[Tuple[int, int, int, int]]] = {
         "hero_region": hero_region,
         "board_region": board_region,
+        "pot_region": get_region(config, "pot_region"),
+        "stack_region": get_region(config, "stack_region"),
+        "bet_to_call_region": get_region(config, "bet_to_call_region"),
+        "action_region": get_region(config, "action_region"),
     }
     return regions
 

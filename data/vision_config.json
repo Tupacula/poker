@@ -1,0 +1,22 @@
+{
+  "action_region": null,
+  "bet_to_call_region": null,
+  "board_region": null,
+  "board_slots": 5,
+  "card_slot": {
+    "h": null,
+    "w": null,
+    "x_spacing": 0,
+    "y_spacing": 0
+  },
+  "corner_crop": {
+    "h": 40,
+    "w": 40,
+    "x": 0,
+    "y": 0
+  },
+  "hero_region": null,
+  "hero_slots": 2,
+  "pot_region": null,
+  "stack_region": null
+}
